@@ -11,7 +11,10 @@ use wasmer_wasi_experimental_network::runtime_impl::get_namespace;
 
 pub struct WasmerHost {
     instance: Instance,
+    /// Pointer to javascript runtime
     js_rt_ptr: i32,
+    /// Pointer to async runtime
+    async_rt_ptr: i32,
     /// The internal wasm buffer offset
     parameter_buffer_ptr: i32,
 }
@@ -29,15 +32,19 @@ impl WasmerHost {
         println!("Creating wasi dev instance.");
         let instance = WasmerHost::new_wasi_dev_instance(runtime);
         println!("Wasi dev instance created.");
-        // Init node object for reuse
+        // Init js runtime object for reuse
         let new_js_rt_ptr = instance.exports.get_function("new_runtime").unwrap();
-        println!("Creating runtime");
         let js_rt_ptr = new_js_rt_ptr.call(&[]).unwrap()[0].i32().unwrap();
+        // Init async runtime for reuse
+        let new_async_rt_ptr = instance.exports.get_function("new_async_runtime").unwrap();
+        let async_rt_ptr = new_async_rt_ptr.call(&[]).unwrap()[0].i32().unwrap();
+        // Get the buffer pointer
         let buffer_fn = instance.exports.get_function("parameter_buffer_ptr").unwrap();
         let parameter_buffer_ptr = buffer_fn.call(&[]).unwrap()[0].i32().unwrap();
         WasmerHost {
             instance,
             js_rt_ptr,
+            async_rt_ptr,
             parameter_buffer_ptr,
         }
     }
@@ -79,6 +86,7 @@ impl WasmHost for WasmerHost {
         // Cal the function
         println!("Calling compile_module_fn...");
         let bytecode_size = compile_module_fn.call(&[
+            Value::I32(self.async_rt_ptr as i32),
             Value::I32(self.js_rt_ptr as i32),
             Value::I32(source.len() as i32),
         ])?[0]
@@ -104,7 +112,10 @@ impl WasmHost for WasmerHost {
             .unwrap();
         let data = unsafe { memory.data_unchecked_mut() };
         self.slice_to_buffer(data, js_bytes);
-        js_rt_eval_fn.call(&[Val::I32(self.js_rt_ptr), Val::I32(js_bytes.len() as i32)]).unwrap()[0]
+        js_rt_eval_fn.call(&[
+            Val::I32(self.async_rt_ptr)
+            Val::I32(self.js_rt_ptr),
+            Val::I32(js_bytes.len() as i32)]).unwrap()[0]
             .i32()
             .unwrap();
     }
@@ -121,7 +132,9 @@ impl WasmHost for WasmerHost {
         parameters.set_rt(self.js_rt_ptr as u32);
         let serialized = bincode::serialize(&parameters).unwrap();
         self.slice_to_buffer(data, &serialized);
-        let res = run_module_function.call(&[Val::I32(serialized.len() as i32)])?[0]
+        let res = run_module_function.call(&[
+            Val::I32(self.async_rt_ptr)
+            Val::I32(serialized.len() as i32)])?[0]
             .i32()
             .unwrap();
         let json_bytes = self.read_returned_value(data, res);
