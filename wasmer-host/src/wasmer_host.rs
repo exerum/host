@@ -113,7 +113,7 @@ impl WasmHost for WasmerHost {
         let data = unsafe { memory.data_unchecked_mut() };
         self.slice_to_buffer(data, js_bytes);
         js_rt_eval_fn.call(&[
-            Val::I32(self.async_rt_ptr)
+            Val::I32(self.async_rt_ptr),
             Val::I32(self.js_rt_ptr),
             Val::I32(js_bytes.len() as i32)]).unwrap()[0]
             .i32()
@@ -133,7 +133,7 @@ impl WasmHost for WasmerHost {
         let serialized = bincode::serialize(&parameters).unwrap();
         self.slice_to_buffer(data, &serialized);
         let res = run_module_function.call(&[
-            Val::I32(self.async_rt_ptr)
+            Val::I32(self.async_rt_ptr),
             Val::I32(serialized.len() as i32)])?[0]
             .i32()
             .unwrap();
